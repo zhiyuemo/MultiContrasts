@@ -144,6 +144,17 @@ compute_contrasts <- function(aipw_1_n, aipw_0_n, alpha = 0.05) {
 #' @param contrast Which contrasts to report. Default \code{"all"}.
 #'   Can also be a character vector subset of
 #'   \code{c("RD","ERR","RR","OR","NNT","SR","VE")}.
+#' @param population A logical vector of length \code{nrow(data)}, or
+#'   \code{NULL} (default). When supplied, nuisance models
+#'   (\eqn{\hat{\mu}_1}, \eqn{\hat{\mu}_0}, \eqn{\hat{g}}) are fitted via
+#'   cross-fitting on the \strong{full} dataset, yielding individual-level
+#'   AIPW pseudo-outcomes for every observation. Causal contrasts are then
+#'   computed by averaging those pseudo-outcomes only within the subgroup
+#'   \code{population == TRUE}, i.e.\cr
+#'   \deqn{\hat{\psi}^S = \frac{1}{n_S}\sum_{i: S_i = 1} \phi(O_i)}
+#'   This gives the conditional ATE (CATE) / average treatment effect in
+#'   the target subpopulation, using the efficiency of the full-data nuisance
+#'   estimates. Influence-function variance is computed within the subgroup.
 #'
 #' @return A data.frame with columns: measure, estimate, lower, upper.
 #' @export
@@ -156,9 +167,20 @@ aipw_estimate <- function(data,
                           n_folds = 5,
                           g_bounds = c(0.01, 0.99),
                           alpha = 0.05,
-                          contrast = "all") {
+                          contrast = "all",
+                          population = NULL) {
 
   data <- as.data.frame(data)
+
+  # Validate population argument
+  if (!is.null(population)) {
+    if (!is.logical(population) || length(population) != nrow(data)) {
+      stop("`population` must be a logical vector with length equal to nrow(data).")
+    }
+    if (sum(population) < 5) {
+      stop("Fewer than 5 observations in the target `population`. Expand the subgroup.")
+    }
+  }
 
   # --- Rename columns internally to A and Y ---
   data$A <- data[[treatment]]
@@ -168,7 +190,6 @@ aipw_estimate <- function(data,
   fold_ids <- sample(rep(1:n_folds, length.out = n))
   aipw_1_n <- numeric(n)
   aipw_0_n <- numeric(n)
-
 
   for (k in 1:n_folds) {
     train_data <- data[fold_ids != k, ]
@@ -182,11 +203,19 @@ aipw_estimate <- function(data,
     # Outcome model
     mu_hats <- estimate_outcome_sl(train_data, test_data, covariates, sl_library_OR)
 
-    # AIPW pseudo-outcomes
+    # AIPW pseudo-outcomes for every observation in this fold
     aipw_1_n[test_idx] <- mu_hats$mu_1 +
       (test_data$A / ps_hat) * (test_data$Y - mu_hats$mu_1)
     aipw_0_n[test_idx] <- mu_hats$mu_0 +
       ((1 - test_data$A) / (1 - ps_hat)) * (test_data$Y - mu_hats$mu_0)
+  }
+
+  # If a target population is specified, restrict pseudo-outcomes to that
+  # subgroup before computing contrasts.  Nuisance models were fitted on the
+  # full data, so their predictions already benefit from the full sample.
+  if (!is.null(population)) {
+    aipw_1_n <- aipw_1_n[population]
+    aipw_0_n <- aipw_0_n[population]
   }
 
   # Compute all contrasts with influence-function-based CIs

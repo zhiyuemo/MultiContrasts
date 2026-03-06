@@ -14,7 +14,8 @@ aipw_estimate(
   n_folds = 5,
   g_bounds = c(0.01, 0.99),
   alpha = 0.05,
-  contrast = "all"
+  contrast = "all",
+  population = NULL
 )
 }
 \arguments{
@@ -43,6 +44,18 @@ for propensity scores. Default \code{c(0.01, 0.99)}.}
 \item{contrast}{Which contrasts to report. Default \code{"all"}.
 Can also be a character vector subset of
 \code{c("RD","ERR","RR","OR","NNT","SR","VE")}.}
+
+\item{population}{A logical vector of length \code{nrow(data)}, or
+\code{NULL} (default). When supplied, nuisance models
+(\eqn{\hat{\mu}_1}, \eqn{\hat{\mu}_0}, \eqn{\hat{g}}) are fitted via
+cross-fitting on the \strong{full} dataset, yielding individual-level
+AIPW pseudo-outcomes for every observation. Causal contrasts are then
+computed by averaging those pseudo-outcomes only within the subgroup
+\code{population == TRUE}, i.e.\cr
+\deqn{\hat{\psi}^S = \frac{1}{n_S}\sum_{i: S_i = 1} \phi(O_i)}
+This gives the conditional ATE (CATE) / average treatment effect in
+the target subpopulation, using the efficiency of the full-data nuisance
+estimates. Influence-function variance is computed within the subgroup.}
 }
 \value{
 A data.frame with columns: measure, estimate, lower, upper.

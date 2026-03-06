@@ -2,13 +2,14 @@
 % Please edit documentation in R/helpers.R
 \name{plot_covariate_diagnostics}
 \alias{plot_covariate_diagnostics}
-\title{Diagnostic: Covariate Density by Treatment Group}
+\title{Diagnostic: Covariate Distribution by Treatment Group}
 \usage{
 plot_covariate_diagnostics(
   data,
   treatment = "A",
   covariates,
-  labels = c("Control", "Treated")
+  labels = c("Control", "Treated"),
+  cat_threshold = 5L
 )
 }
 \arguments{
@@ -20,11 +21,19 @@ plot_covariate_diagnostics(
 
 \item{labels}{Character vector of length 2. Labels for treatment = 0
 and treatment = 1. Default \code{c("Control", "Treated")}.}
+
+\item{cat_threshold}{Integer. Numeric covariates with \emph{fewer than or
+equal to} this many unique values are treated as categorical.
+Default \code{5}.}
 }
 \value{
-A ggplot2 object (invisibly).
+A named list with elements \code{$continuous} and/or
+\code{$categorical}, each a ggplot2 object (or \code{NULL} if there
+are no covariates of that type). Both plots are printed as a side effect.
 }
 \description{
-Plots the density of each covariate, stratified by treatment group.
-Useful for visually assessing overlap and covariate balance.
+Plots covariate distributions stratified by treatment group.
+Numeric covariates with more than \code{cat_threshold} unique values are
+shown as overlapping density curves; all other covariates (binary,
+ordinal, character, factor) are shown as side-by-side bar charts.
 }

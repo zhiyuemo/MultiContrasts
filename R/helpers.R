@@ -2,53 +2,112 @@
 utils::globalVariables(c("est", "lo", "hi", "label"))
 utils::globalVariables(c("value", "covariate", "trt_group"))
 
-#' Diagnostic: Covariate Density by Treatment Group
+#' Diagnostic: Covariate Distribution by Treatment Group
 #'
-#' Plots the density of each covariate, stratified by treatment group.
-#' Useful for visually assessing overlap and covariate balance.
+#' Plots covariate distributions stratified by treatment group.
+#' Numeric covariates with more than \code{cat_threshold} unique values are
+#' shown as overlapping density curves; all other covariates (binary,
+#' ordinal, character, factor) are shown as side-by-side bar charts.
 #'
 #' @param data A data.frame.
 #' @param treatment Character. Name of binary treatment column.
 #' @param covariates Character vector of covariate column names.
 #' @param labels Character vector of length 2. Labels for treatment = 0
 #'   and treatment = 1. Default \code{c("Control", "Treated")}.
+#' @param cat_threshold Integer. Numeric covariates with \emph{fewer than or
+#'   equal to} this many unique values are treated as categorical.
+#'   Default \code{5}.
 #'
-#' @return A ggplot2 object (invisibly).
+#' @return A named list with elements \code{$continuous} and/or
+#'   \code{$categorical}, each a ggplot2 object (or \code{NULL} if there
+#'   are no covariates of that type). Both plots are printed as a side effect.
 #' @export
 plot_covariate_diagnostics <- function(data,
                                        treatment = "A",
                                        covariates,
-                                       labels = c("Control", "Treated")) {
+                                       labels = c("Control", "Treated"),
+                                       cat_threshold = 5L) {
 
   if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("Package 'ggplot2' is required for this function. Install it with install.packages('ggplot2').")
+    stop("Package 'ggplot2' is required. Install with install.packages('ggplot2').")
   }
   if (!requireNamespace("tidyr", quietly = TRUE)) {
-    stop("Package 'tidyr' is required for this function. Install it with install.packages('tidyr').")
+    stop("Package 'tidyr' is required. Install with install.packages('tidyr').")
   }
 
   data <- as.data.frame(data)
-  plot_data <- data[, c(treatment, covariates), drop = FALSE]
-  plot_data[[treatment]] <- ifelse(plot_data[[treatment]] == 0, labels[1], labels[2])
 
-  long_data <- tidyr::pivot_longer(
-    plot_data,
-    cols = -tidyr::all_of(treatment),
-    names_to = "covariate",
-    values_to = "value"
-  )
+  # Label treatment groups
+  trt_vals   <- sort(unique(data[[treatment]]))
+  trt_labels <- if (length(trt_vals) == 2 && all(trt_vals %in% c(0, 1, 0L, 1L))) {
+    labels
+  } else {
+    paste0("Group (A=", trt_vals, ")")
+  }
+  data[[treatment]] <- factor(data[[treatment]],
+                              levels = trt_vals, labels = trt_labels)
 
-  p <- ggplot2::ggplot(long_data, ggplot2::aes(x = value)) +
-    ggplot2::geom_density(ggplot2::aes(color = get(treatment))) +
-    ggplot2::facet_wrap(~ covariate, scales = "free") +
-    ggplot2::theme(
-      text = ggplot2::element_text(size = 14),
-      legend.title = ggplot2::element_blank(),
-      legend.position = "top"
+  # Classify covariates
+  is_cont <- sapply(data[, covariates, drop = FALSE], function(x) {
+    is.numeric(x) && length(unique(x)) > cat_threshold
+  })
+  cont_covars <- covariates[is_cont]
+  cat_covars  <- covariates[!is_cont]
+
+  COLORS <- c("#E74C3C", "#3498DB")
+  out <- list(continuous = NULL, categorical = NULL)
+
+  # --- Continuous: density plots ---
+  if (length(cont_covars) > 0) {
+    long_cont <- tidyr::pivot_longer(
+      data[, c(treatment, cont_covars), drop = FALSE],
+      cols      = -tidyr::all_of(treatment),
+      names_to  = "covariate",
+      values_to = "value"
     )
+    p_cont <- ggplot2::ggplot(long_cont,
+                              ggplot2::aes(x = value,
+                                           color = .data[[treatment]],
+                                           fill  = .data[[treatment]])) +
+      ggplot2::geom_density(alpha = 0.15, linewidth = 1) +
+      ggplot2::facet_wrap(~ covariate, scales = "free") +
+      ggplot2::scale_color_manual(values = COLORS) +
+      ggplot2::scale_fill_manual(values  = COLORS) +
+      ggplot2::labs(title = "Continuous Covariates",
+                    color = NULL, fill = NULL, x = NULL) +
+      ggplot2::theme_minimal(base_size = 13) +
+      ggplot2::theme(legend.position = "top",
+                     strip.text = ggplot2::element_text(face = "bold"))
+    print(p_cont)
+    out$continuous <- p_cont
+  }
 
-  print(p)
-  invisible(p)
+  # --- Categorical: dodged bar charts ---
+  if (length(cat_covars) > 0) {
+    long_cat <- tidyr::pivot_longer(
+      data[, c(treatment, cat_covars), drop = FALSE],
+      cols      = -tidyr::all_of(treatment),
+      names_to  = "covariate",
+      values_to = "value"
+    )
+    long_cat$value <- as.character(long_cat$value)
+    p_cat <- ggplot2::ggplot(long_cat,
+                             ggplot2::aes(x    = value,
+                                          fill = .data[[treatment]])) +
+      ggplot2::geom_bar(position = "dodge", alpha = 0.85) +
+      ggplot2::facet_wrap(~ covariate, scales = "free_x") +
+      ggplot2::scale_fill_manual(values = COLORS) +
+      ggplot2::labs(title = "Categorical Covariates",
+                    fill = NULL, x = NULL, y = "Count") +
+      ggplot2::theme_minimal(base_size = 13) +
+      ggplot2::theme(legend.position = "top",
+                     strip.text  = ggplot2::element_text(face = "bold"),
+                     axis.text.x = ggplot2::element_text(angle = 30, hjust = 1))
+    print(p_cat)
+    out$categorical <- p_cat
+  }
+
+  invisible(out)
 }
 
 #' List Available Causal Contrasts
