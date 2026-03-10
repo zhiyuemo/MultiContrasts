@@ -15,7 +15,8 @@ aipw_estimate(
   g_bounds = c(0.01, 0.99),
   alpha = 0.05,
   contrast = "all",
-  population = NULL
+  population = NULL,
+  outcome_type = c("binary", "continuous")
 )
 }
 \arguments{

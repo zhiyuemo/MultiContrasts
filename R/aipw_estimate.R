@@ -16,7 +16,8 @@ estimate_ps_sl <- function(train_data, test_data, covariates, sl_library) {
 }
 
 #' @keywords internal
-estimate_outcome_sl <- function(train_data, test_data, covariates, sl_library) {
+estimate_outcome_sl <- function(train_data, test_data, covariates, sl_library,
+                                outcome_type = "binary") {
   train_1 <- train_data[train_data$A == 1, ]
   train_0 <- train_data[train_data$A == 0, ]
 
@@ -24,14 +25,16 @@ estimate_outcome_sl <- function(train_data, test_data, covariates, sl_library) {
   X_0 <- train_0[, covariates, drop = FALSE]
   X_test <- test_data[, covariates, drop = FALSE]
 
+  fam <- if (outcome_type == "binary") stats::binomial() else stats::gaussian()
+
   sl_fit_1 <- SuperLearner::SuperLearner(
     Y = train_1$Y, X = X_1,
-    family = stats::binomial(),
+    family = fam,
     SL.library = sl_library, method = "method.NNLS", verbose = FALSE
   )
   sl_fit_0 <- SuperLearner::SuperLearner(
     Y = train_0$Y, X = X_0,
-    family = stats::binomial(),
+    family = fam,
     SL.library = sl_library, method = "method.NNLS", verbose = FALSE
   )
 
@@ -126,6 +129,42 @@ compute_contrasts <- function(aipw_1_n, aipw_0_n, alpha = 0.05) {
   )
 }
 
+#' @keywords internal
+compute_contrasts_continuous <- function(aipw_1_n, aipw_0_n, alpha = 0.05) {
+  n <- length(aipw_1_n)
+  psi_1 <- mean(aipw_1_n)
+  psi_0 <- mean(aipw_0_n)
+
+  mean_diff  <- psi_1 - psi_0
+  mean_ratio <- psi_1 / psi_0
+
+  IF_psi1 <- aipw_1_n - psi_1
+  IF_psi0 <- aipw_0_n - psi_0
+  IF_diff <- IF_psi1 - IF_psi0
+  IF_log_ratio <- (1 / psi_1) * IF_psi1 - (1 / psi_0) * IF_psi0
+
+  se_diff  <- sqrt(stats::var(IF_diff) / n)
+  se_psi1  <- sqrt(stats::var(IF_psi1) / n)
+  se_psi0  <- sqrt(stats::var(IF_psi0) / n)
+  se_log_ratio <- sqrt(stats::var(IF_log_ratio) / n)
+
+  z <- stats::qnorm(1 - alpha / 2)
+
+  log_ratio <- log(mean_ratio)
+  ratio_lower <- exp(log_ratio - z * se_log_ratio)
+  ratio_upper <- exp(log_ratio + z * se_log_ratio)
+
+  data.frame(
+    measure  = c("mean_diff", "mean_ratio", "E[Y1]", "E[Y0]"),
+    estimate = c(mean_diff, mean_ratio, psi_1, psi_0),
+    lower    = c(mean_diff - z * se_diff, ratio_lower,
+                 psi_1 - z * se_psi1, psi_0 - z * se_psi0),
+    upper    = c(mean_diff + z * se_diff, ratio_upper,
+                 psi_1 + z * se_psi1, psi_0 + z * se_psi0),
+    stringsAsFactors = FALSE
+  )
+}
+
 #' AIPW Estimator with Cross-Fitting
 #'
 #' @param data A data.frame with columns named by \code{outcome},
@@ -168,7 +207,10 @@ aipw_estimate <- function(data,
                           g_bounds = c(0.01, 0.99),
                           alpha = 0.05,
                           contrast = "all",
-                          population = NULL) {
+                          population = NULL,
+                          outcome_type = c("binary", "continuous")) {
+
+  outcome_type <- match.arg(outcome_type)
 
   data <- as.data.frame(data)
 
@@ -184,7 +226,7 @@ aipw_estimate <- function(data,
 
   # --- Rename columns internally to A and Y ---
   data$A <- data[[treatment]]
-  data$Y <- data[[outcome]]
+  data$Y <- as.numeric(data[[outcome]])
 
   n <- nrow(data)
   fold_ids <- sample(rep(1:n_folds, length.out = n))
@@ -201,7 +243,8 @@ aipw_estimate <- function(data,
     ps_hat <- pmax(pmin(ps_hat, g_bounds[2]), g_bounds[1])
 
     # Outcome model
-    mu_hats <- estimate_outcome_sl(train_data, test_data, covariates, sl_library_OR)
+    mu_hats <- estimate_outcome_sl(train_data, test_data, covariates, sl_library_OR,
+                                    outcome_type = outcome_type)
 
     # AIPW pseudo-outcomes for every observation in this fold
     aipw_1_n[test_idx] <- mu_hats$mu_1 +
@@ -218,12 +261,17 @@ aipw_estimate <- function(data,
     aipw_0_n <- aipw_0_n[population]
   }
 
-  # Compute all contrasts with influence-function-based CIs
-  results <- compute_contrasts(aipw_1_n, aipw_0_n, alpha = alpha)
+  # Compute contrasts with influence-function-based CIs
+  if (outcome_type == "binary") {
+    results <- compute_contrasts(aipw_1_n, aipw_0_n, alpha = alpha)
+    valid <- c("RD", "ERR", "RR", "OR", "NNT", "SR", "VE", "E[Y1]", "E[Y0]")
+  } else {
+    results <- compute_contrasts_continuous(aipw_1_n, aipw_0_n, alpha = alpha)
+    valid <- c("mean_diff", "mean_ratio", "E[Y1]", "E[Y0]")
+  }
 
   # Filter contrasts if requested
   if (!identical(contrast, "all")) {
-    valid <- c("RD", "ERR", "RR", "OR", "NNT", "SR", "VE", "E[Y1]", "E[Y0]")
     bad <- setdiff(contrast, valid)
     if (length(bad) > 0) {
       stop("Unknown contrast(s): ", paste(bad, collapse = ", "),
