@@ -12,7 +12,7 @@
 
 ## What's MultiContrasts?
 
-`MultiContrasts` provides a unified interface for estimating a broad class of causal contrasts using cross-fitted Augmented Inverse Probability Weighting (AIPW) with SuperLearner for nuisance parameter estimation. The package implements the doubly robust, semiparametric efficient estimators described in our accompanying paper.
+`MultiContrasts` provides a unified interface for estimating a broad class of causal contrasts using cross-fitted Augmented Inverse Probability Weighting (AIPW) with SuperLearner for nuisance parameter estimation. The package implements the doubly robust, semiparametric efficient estimators described in our accompanying paper. We also developed a siny App based on this `R` package: https://zhiyuemo.shinyapps.io/Shiny_multiContrast/
 
 Rather than restricting investigators to a single effect measure, `MultiContrasts` simultaneously estimates **seven** population-level causal contrasts from a single function call:
 
